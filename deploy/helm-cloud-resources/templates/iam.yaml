@@ -49,17 +49,34 @@ spec:
     external: {{ .Values.gcp.project }}
 
 ---
-# IAM Policy Binding - Secret Manager Secret Accessor
+# IAM Policy Binding - Cloud SQL Admin (for migration job to set ephemeral postgres password)
 apiVersion: iam.cnrm.cloud.google.com/v1beta1
 kind: IAMPolicyMember
 metadata:
-  name: {{ .Values.serviceAccount.name }}-secretmanager-accessor
+  name: {{ .Values.serviceAccount.name }}-cloudsql-admin
   namespace: {{ .Values.namespace.name | quote }}
   labels:
     {{- include "cls-backend-cloud-resources.labels" . | nindent 4 }}
 spec:
   member: serviceAccount:{{ .Values.serviceAccount.name }}@{{ .Values.gcp.project }}.iam.gserviceaccount.com
-  role: roles/secretmanager.secretAccessor
+  role: roles/cloudsql.admin
+  resourceRef:
+    apiVersion: resourcemanager.cnrm.cloud.google.com/v1beta1
+    kind: Project
+    external: {{ .Values.gcp.project }}
+
+---
+# IAM Policy Binding - Cloud SQL Instance User (IAM database authentication)
+apiVersion: iam.cnrm.cloud.google.com/v1beta1
+kind: IAMPolicyMember
+metadata:
+  name: {{ .Values.serviceAccount.name }}-cloudsql-instance-user
+  namespace: {{ .Values.namespace.name | quote }}
+  labels:
+    {{- include "cls-backend-cloud-resources.labels" . | nindent 4 }}
+spec:
+  member: serviceAccount:{{ .Values.serviceAccount.name }}@{{ .Values.gcp.project }}.iam.gserviceaccount.com
+  role: roles/cloudsql.instanceUser
   resourceRef:
     apiVersion: resourcemanager.cnrm.cloud.google.com/v1beta1
     kind: Project

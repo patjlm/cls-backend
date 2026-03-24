@@ -36,20 +36,13 @@ spec:
         - -c
         - |
           echo "Copying migration files from cls-backend image..."
-          echo "Source: /app/internal/database/migrations/"
-          echo "Target: /shared/migrations/"
-
-          # Create target directory
           mkdir -p /shared/migrations/
-
-          # Copy all migration files
           if [ -d "/app/internal/database/migrations" ]; then
             cp -v /app/internal/database/migrations/*.sql /shared/migrations/ 2>/dev/null || echo "No .sql files found in migrations directory"
-
             echo "Migration files copied:"
             ls -la /shared/migrations/
           else
-            echo "WARNING: Migration directory /app/internal/database/migrations not found in image"
+            echo "ERROR: Migration directory /app/internal/database/migrations not found in image"
             exit 1
           fi
         volumeMounts:
@@ -59,7 +52,7 @@ spec:
           runAsNonRoot: true
           runAsUser: 1001
           allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: false  # Need write access to copy files
+          readOnlyRootFilesystem: false
           capabilities:
             drop:
             - ALL
@@ -71,6 +64,7 @@ spec:
         restartPolicy: Always
         args:
         - "--structured-logs"
+        - "--auto-iam-authn"
         - "--port={{ .Values.database.cloudSql.proxyPort }}"
         - "--health-check"
         - "--http-address=0.0.0.0"
@@ -115,25 +109,93 @@ spec:
             port: health
           periodSeconds: 5
           timeoutSeconds: 5
-          failureThreshold: 12  # 60 seconds total before marking unready
+          failureThreshold: 12
       {{- end }}
+      # Bootstrap IAM user privileges in two steps:
+      # 1. set-postgres-password: sets ephemeral password via Cloud SQL Admin API (gcloud)
+      # 2. grant-iam-role: connects as postgres via psql and grants cloudsqlsuperuser
+      # Password is written to tmpfs and forgotten when the pod exits.
+      - name: set-postgres-password
+        image: gcr.io/google.com/cloudsdktool/google-cloud-cli:alpine
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          set -e
+          TEMP_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)
+
+          echo "Setting ephemeral postgres password via Cloud SQL Admin API..."
+          gcloud sql users set-password postgres \
+            --instance="{{ include "cls-backend-application.getDatabaseInstanceName" . }}" \
+            --project="{{ .Values.gcp.project }}" \
+            --password="${TEMP_PASSWORD}" \
+            --quiet
+
+          echo "${TEMP_PASSWORD}" > /shared/credentials/pg-password
+          echo "Ephemeral postgres password set."
+        volumeMounts:
+        - name: credentials-volume
+          mountPath: /shared/credentials
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+      - name: grant-iam-role
+        image: postgres:15-alpine
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          set -e
+          IAM_USER="{{ include "cls-backend-application.getDatabaseUsername" . }}"
+          DB_PORT="{{ .Values.database.cloudSql.proxyPort | default 5432 }}"
+          DB_NAME="{{ include "cls-backend-application.getDatabaseName" . }}"
+          export PGPASSWORD=$(cat /shared/credentials/pg-password)
+
+          echo "Waiting for Cloud SQL Proxy..."
+          until pg_isready -h localhost -p "${DB_PORT}" -U postgres; do
+            sleep 2
+          done
+
+          echo "Granting cloudsqlsuperuser to IAM user: ${IAM_USER}..."
+          psql -h localhost -p "${DB_PORT}" -U postgres -d "${DB_NAME}" -c \
+            "GRANT cloudsqlsuperuser TO \"${IAM_USER}\";" || {
+              echo "WARNING: Could not grant cloudsqlsuperuser to ${IAM_USER}."
+              echo "The IAM SQLUser may not have been created yet by Config Connector."
+              echo "Migration will proceed but may fail if IAM user lacks privileges."
+            }
+
+          echo "IAM user bootstrap complete."
+        volumeMounts:
+        - name: credentials-volume
+          mountPath: /shared/credentials
+          readOnly: true
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
       containers:
       - name: migration
         image: postgres:15-alpine
         env:
+          # Same DATABASE_URL as the application — connects as IAM user via proxy
           - name: DATABASE_URL
             valueFrom:
-              secretKeyRef:
-                name: {{ .Values.database.passwordSecret.name }}
+              configMapKeyRef:
+                name: {{ include "cls-backend-application.fullname" . }}-config
                 key: DATABASE_URL
         command:
         - /bin/sh
         - -c
         - |
-          echo "Starting dynamic database migrations..."
-          # Mask password in DATABASE_URL for logging (show only host, port, database)
-          MASKED_URL=$(echo "$DATABASE_URL" | sed -E 's|(postgres://[^:]+:)[^@]+(@)|\1***\2|')
-          echo "Database URL: $MASKED_URL"
+          echo "Starting database migrations as IAM user..."
+          echo "Database URL: $DATABASE_URL"
 
           # Wait for database to be ready
           echo "Waiting for database to be ready..."
@@ -158,7 +220,6 @@ spec:
           # Check if any migration files exist
           if [ ! "$(ls -A *.sql 2>/dev/null)" ]; then
             echo "No migration files found in /shared/migrations/"
-            echo "Available files:"
             ls -la /shared/migrations/
             exit 1
           fi
@@ -220,3 +281,6 @@ spec:
       volumes:
       - name: migrations-volume
         emptyDir: {}
+      - name: credentials-volume
+        emptyDir:
+          medium: Memory  # tmpfs - never written to disk

@@ -69,14 +69,6 @@ Cross-chart parameter validation for consistency with application and API gatewa
 {{- fail "\n❌ MISSING REQUIRED VALUE: database.database.name\n\n📋 REQUIRED ACTION:\n   Set database.database.name to your PostgreSQL database name\n\n💡 EXAMPLE:\n   database:\n     database:\n       name: \"cls_backend\"\n\n⚠️  IMPORTANT: This value must match database.databaseName in the application chart\n\n🔗 More info: Must be a valid PostgreSQL database name (lowercase, underscores allowed)" -}}
 {{- end -}}
 
-{{- if not .Values.database.user.name -}}
-{{- fail "\n❌ MISSING REQUIRED VALUE: database.user.name\n\n📋 REQUIRED ACTION:\n   Set database.user.name to your PostgreSQL username\n\n💡 EXAMPLE:\n   database:\n     user:\n       name: \"cls_user\"\n\n⚠️  IMPORTANT: This value must match database.username in the application chart\n\n🔗 More info: Must be a valid PostgreSQL username (lowercase, underscores allowed)" -}}
-{{- end -}}
-
-{{- if not .Values.database.user.passwordSecret.name -}}
-{{- fail "\n❌ MISSING REQUIRED VALUE: database.user.passwordSecret.name\n\n📋 REQUIRED ACTION:\n   Set database.user.passwordSecret.name for ESO password generation\n\n💡 EXAMPLE:\n   database:\n     user:\n       passwordSecret:\n         name: \"cls-backend-db-password\"\n\n⚠️  IMPORTANT: This value must match database.passwordSecret.name in the application chart\n\n🔗 More info: Password will be generated automatically by External Secrets Operator (ESO)" -}}
-{{- end -}}
-
 {{- /* Validate Pub/Sub configuration consistency */ -}}
 {{- if not .Values.pubsub.clusterEventsTopic -}}
 {{- fail "\n❌ MISSING REQUIRED VALUE: pubsub.clusterEventsTopic\n\n📋 REQUIRED ACTION:\n   Set pubsub.clusterEventsTopic to your Pub/Sub topic name\n\n💡 EXAMPLE:\n   pubsub:\n     clusterEventsTopic: \"cluster-events\"\n\n⚠️  IMPORTANT: This value must match pubsub.clusterEventsTopic in the application chart\n\n🔗 More info: Topic will be created automatically by this chart" -}}
@@ -100,8 +92,6 @@ Cross-chart parameter validation for consistency with application and API gatewa
 {{- /* Validation messages for cross-chart consistency */ -}}
 {{- $dbInstance := .Values.database.instance.name -}}
 {{- $dbName := .Values.database.database.name -}}
-{{- $dbUser := .Values.database.user.name -}}
-{{- $secretName := .Values.database.user.passwordSecret.name -}}
 {{- $topic := .Values.pubsub.clusterEventsTopic -}}
 {{- $saName := .Values.serviceAccount.name -}}
 {{- $namespace := .Values.workloadIdentity.kubernetesNamespace -}}
@@ -113,14 +103,6 @@ Cross-chart parameter validation for consistency with application and API gatewa
 
 {{- if ne $dbName "cls_backend" -}}
 {{- printf "\nWARNING: database.database.name='%s' should typically be 'cls_backend' to match application chart defaults" $dbName | fail -}}
-{{- end -}}
-
-{{- if ne $dbUser "cls_user" -}}
-{{- printf "\nWARNING: database.user.name='%s' should typically be 'cls_user' to match application chart defaults" $dbUser | fail -}}
-{{- end -}}
-
-{{- if ne $secretName "cls-backend-db-password" -}}
-{{- printf "\nWARNING: database.user.passwordSecret.name='%s' should typically be 'cls-backend-db-password' to match application chart defaults" $secretName | fail -}}
 {{- end -}}
 
 {{- if ne $topic "cluster-events" -}}

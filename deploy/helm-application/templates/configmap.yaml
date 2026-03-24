@@ -42,6 +42,12 @@ data:
   AGGREGATION_RETRY_ATTEMPTS: {{ .Values.config.aggregation.retryAttempts | quote }}
   AGGREGATION_RETRY_BACKOFF: {{ .Values.config.aggregation.retryBackoff | quote }}
 
+  # Google Cloud Project ID
+  GOOGLE_CLOUD_PROJECT: {{ .Values.gcp.project | quote }}
+
+  # Database connection URL (IAM auth via Cloud SQL Proxy - no password needed)
+  DATABASE_URL: "postgres://{{ include "cls-backend-application.getDatabaseUsername" . }}@localhost:{{ .Values.database.cloudSql.proxyPort | default 5432 }}/{{ include "cls-backend-application.getDatabaseName" . }}?sslmode=disable"
+
   # Database configuration
   DATABASE_MAX_OPEN_CONNS: "25"
   DATABASE_MAX_IDLE_CONNS: "5"

@@ -19,6 +19,9 @@ spec:
     diskSize: {{ .Values.database.instance.diskSize }}
     diskType: {{ .Values.database.instance.diskType }}
     diskAutoresize: true
+    databaseFlags:
+      - name: "cloudsql.iam_authentication"
+        value: "on"
     diskAutoresizeLimit: 100
     ipConfiguration:
       ipv4Enabled: true
@@ -55,25 +58,21 @@ spec:
     name: {{ .Values.database.instance.name }}
 
 ---
-# Database user
+# Database IAM user (authenticates via GCP IAM, no password needed)
 apiVersion: sql.cnrm.cloud.google.com/v1beta1
 kind: SQLUser
 metadata:
-  name: {{ .Values.database.user.name | replace "_" "-" }}
+  name: {{ .Values.serviceAccount.name }}-iam-user
   namespace: {{ .Values.namespace.name | quote }}
   annotations:
     cnrm.cloud.google.com/project-id: {{ .Values.gcp.project | quote }}
   labels:
     {{- include "cls-backend-cloud-resources.labels" . | nindent 4 }}
 spec:
-  resourceID: {{ .Values.database.user.name | quote }}
+  resourceID: {{ .Values.serviceAccount.name }}@{{ .Values.gcp.project }}.iam
   instanceRef:
     name: {{ .Values.database.instance.name }}
-  password:
-    valueFrom:
-      secretKeyRef:
-        name: {{ .Values.database.user.passwordSecret.name }}
-        key: password
+  type: CLOUD_IAM_SERVICE_ACCOUNT
 {{- else }}
 {{- fail "gcp.project is required" }}
 {{- end }}

@@ -88,15 +88,11 @@ Auto-discover database name from cloud-resources chart
 {{- end }}
 
 {{/*
-Auto-discover database username from cloud-resources chart
+IAM database username: derived from GCP service account
+Format: SA_NAME@PROJECT.iam (truncated, no .gserviceaccount.com)
 */}}
 {{- define "cls-backend-application.getDatabaseUsername" -}}
-{{- $manualUsername := .Values.database.username -}}
-{{- if $manualUsername -}}
-{{- $manualUsername -}}
-{{- else -}}
-{{- "cls_user" -}}
-{{- end -}}
+{{- printf "%s@%s.iam" (include "cls-backend-application.getServiceAccount" .) .Values.gcp.project -}}
 {{- end }}
 
 {{/*
